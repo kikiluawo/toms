@@ -26,10 +26,30 @@ class Company extends Model
         return $this->hasMany(Branch::class);
     }
 
+    public function departments(): HasMany
+    {
+        return $this->hasMany(Department::class);
+    }
+
+    public function positions(): HasMany
+    {
+        return $this->hasMany(Position::class);
+    }
+
+    public function purchaseOrders(): HasMany
+    {
+        return $this->hasMany(PurchaseOrder::class);
+    }
+
+    public function stockMovements(): HasMany
+    {
+        return $this->hasMany(StockMovement::class);
+    }
+
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class)
-            ->withPivot(['role', 'all_branches'])
+            ->withPivot(['role', 'data_scope', 'department_id', 'position_id'])
             ->withTimestamps();
     }
 }

@@ -1,8 +1,14 @@
 @php
-    $navigation = [
-        ['name' => 'Dashboard', 'href' => route('dashboard'), 'icon' => 'home', 'active' => request()->routeIs('dashboard')],
-        ['name' => 'Profile', 'href' => route('profile.edit'), 'icon' => 'user', 'active' => request()->routeIs('profile.*')],
-    ];
+    $navigation = collect(config('menu.items'))
+        ->map(fn ($item, $key) => [
+            'key' => $key,
+            'name' => $item['label'],
+            'href' => route($item['route']),
+            'icon' => $item['icon'],
+            'active' => request()->routeIs($item['pattern']),
+        ])
+        ->filter(fn ($item) => auth()->user()?->hasMenuAccess($item['key']))
+        ->values();
 @endphp
 
 <div
@@ -28,7 +34,7 @@
         </div>
     </div>
 
-    <div class="mx-6 mb-4 mt-6 h-px bg-gray-200 dark:bg-white/10" />
+    <div class="mx-6 mb-4 mt-6 h-px bg-gray-200 dark:bg-white/10"></div>
 
     <p class="mb-2 px-8 text-[9px] font-bold uppercase tracking-[0.18em] text-gray-400 dark:text-white/40">
         Menu
@@ -53,12 +59,20 @@
         @endforeach
     </ul>
 
-    @if ($activeCompany ?? null)
+    @php
+        $contextCompany = $activeCompany ?? null;
+        $groupWide = ! $contextCompany && ($userContext?->isAllCompanies() ?? false);
+    @endphp
+
+    @if ($contextCompany || $groupWide)
         <div class="mx-4 mt-auto rounded-2xl bg-gradient-to-br from-petrol-800 to-navy-900 p-4 text-white">
             <p class="text-[9px] font-bold uppercase tracking-[0.18em] text-white/40">Active company</p>
-            <p class="mt-1 truncate text-sm font-bold">{{ $activeCompany->name }}</p>
+            <p class="mt-1 truncate text-sm font-bold">{{ $contextCompany?->name ?? 'Seluruh PT' }}</p>
             <p class="mt-0.5 truncate text-[11px] text-white/60">
-                {{ $activeBranch?->name ?? (($activeMembership?->all_branches ?? true) ? 'All branches' : 'All assigned branches') }}
+                {{ $activeBranch?->name ?? ($contextCompany ? $userContext?->scopeLabel($contextCompany->id) : $userContext?->roleLabel()) }}
+                @if ($contextCompany && $userContext?->roleLabel($contextCompany->id))
+                    &middot; {{ $userContext->roleLabel($contextCompany->id) }}
+                @endif
             </p>
             <a
                 href="{{ route('context.select') }}"

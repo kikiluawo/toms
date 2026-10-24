@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
+use App\Support\UserContext;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\View;
@@ -10,7 +12,7 @@ use Symfony\Component\HttpFoundation\Response;
 class ResolveActiveContext
 {
     /**
-     * Resolve the active company and branch for the authenticated user.
+     * Keep the session company/branch in step with what the user is allowed to see.
      */
     public function handle(Request $request, Closure $next): Response
     {
@@ -20,52 +22,54 @@ class ResolveActiveContext
             return $next($request);
         }
 
-        $companies = $user->companies()->with('branches')->get();
+        $context = $this->context($request, $user);
 
-        if ($companies->isEmpty()) {
+        if ($context->visibleCompanies()->isEmpty()) {
             return $next($request);
         }
 
-        $company = null;
-        $activeCompanyId = $request->session()->get('active_company_id');
-
-        if ($activeCompanyId) {
-            $company = $companies->firstWhere('id', (int) $activeCompanyId);
-        }
-
-        if (! $company) {
-            if ($companies->count() > 1) {
+        if (! $context->isGrounded()) {
+            if ($context->isGroup()) {
+                $this->remember($request, UserContext::ALL, null);
+            } elseif ($context->visibleCompanies()->count() > 1) {
                 return redirect()->route('context.select');
+            } else {
+                $this->remember($request, $context->visibleCompanies()->first()->id, null);
             }
 
-            $company = $companies->first();
-            $request->session()->put('active_company_id', $company->id);
+            $context = $this->context($request, $user);
         }
 
-        $branch = null;
-        $activeBranchId = $request->session()->get('active_branch_id');
-
-        if ($activeBranchId) {
-            $branch = $company->branches->firstWhere('id', (int) $activeBranchId);
-
-            $allowed = (bool) $company->pivot->all_branches
-                || $user->canAccessBranch((int) $activeBranchId);
-
-            if (! $branch || ! $allowed) {
-                $branch = null;
-                $request->session()->forget('active_branch_id');
-            }
+        if ($request->session()->get('active_branch_id') && ! $context->branch()) {
+            $this->remember($request, $request->session()->get('active_company_id'), null);
+            $context = $this->context($request, $user);
         }
+
+        $request->attributes->set('userContext', $context);
 
         View::share([
-            'activeCompany' => $company,
-            'activeBranch' => $branch,
-            'activeMembership' => $company->pivot,
+            'userContext' => $context,
+            'activeCompany' => $context->company(),
+            'activeBranch' => $context->branch(),
         ]);
 
-        $request->attributes->set('activeCompany', $company);
-        $request->attributes->set('activeBranch', $branch);
-
         return $next($request);
+    }
+
+    private function context(Request $request, User $user): UserContext
+    {
+        return new UserContext(
+            $user,
+            $request->session()->get('active_company_id'),
+            $request->session()->get('active_branch_id'),
+        );
+    }
+
+    private function remember(Request $request, int|string|null $companyId, ?int $branchId): void
+    {
+        $request->session()->put([
+            'active_company_id' => $companyId,
+            'active_branch_id' => $branchId,
+        ]);
     }
 }

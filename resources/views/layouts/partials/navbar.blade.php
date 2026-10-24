@@ -1,9 +1,10 @@
 @php
     $user = auth()->user();
-    $navMemberships = $user?->companies()->with('branches')->get() ?? collect();
-    $navAllowedBranchIds = $user?->branches()->pluck('branches.id') ?? collect();
+    $navContext = $user?->context();
+    $navCompanies = $navContext?->visibleCompanies() ?? collect();
     $navCompany = $activeCompany ?? null;
     $navBranch = $activeBranch ?? null;
+    $navGroupWide = ! $navCompany && ($navContext?->isAllCompanies() ?? false);
 @endphp
 
 <nav class="sticky top-4 z-40 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-white/10 p-2 backdrop-blur-xl dark:bg-[#0b14374d]">
@@ -21,7 +22,7 @@
     </div>
 
     <div class="flex w-full items-center gap-2 md:w-auto">
-        @if ($navCompany)
+        @if ($navCompany || $navGroupWide)
             <div x-data="{ open: false }" class="relative min-w-0 flex-1 md:flex-none">
                 <button
                     type="button"
@@ -33,10 +34,10 @@
                     </span>
                     <span class="flex min-w-0 flex-col">
                         <span class="text-[9px] font-bold uppercase tracking-[0.14em] text-gray-400">Company</span>
-                        <span class="max-w-[150px] truncate text-xs font-bold text-navy-700 dark:text-white">{{ $navCompany->name }}</span>
+                        <span class="max-w-[150px] truncate text-xs font-bold text-navy-700 dark:text-white">{{ $navCompany?->name ?? 'Seluruh PT' }}</span>
                     </span>
                     <span class="ml-auto flex shrink-0 items-center gap-1 rounded-lg bg-oil-100 px-2 py-1 text-[10px] font-bold text-oil-700 dark:bg-oil-500/10 dark:text-oil-300">
-                        <span class="max-w-[110px] truncate">{{ $navBranch?->name ?? (($activeMembership?->all_branches ?? true) ? 'All branches' : 'Assigned branches') }}</span>
+                        <span class="max-w-[110px] truncate">{{ $navBranch?->name ?? ($navCompany ? $navContext?->scopeLabel($navCompany->id) : $navContext?->roleLabel()) }}</span>
                         <x-icon name="chevron-down" class="h-3 w-3" />
                     </span>
                 </button>
@@ -48,29 +49,41 @@
                     x-transition
                     class="absolute right-0 top-[58px] z-50 max-h-[70vh] w-[19rem] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl bg-white p-2 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white dark:shadow-none"
                 >
-                    @foreach ($navMemberships as $company)
-                        @php
-                            $branches = $company->branches;
+                    @if ($navContext?->isGroup())
+                        <form method="POST" action="{{ route('context.store') }}">
+                            @csrf
+                            <input type="hidden" name="company_id" value="{{ \App\Support\UserContext::ALL }}">
+                            <button type="submit" class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-bold text-oil-700 transition hover:bg-lightPrimary dark:text-oil-300 dark:hover:bg-white/10">
+                                Seluruh PT
+                                @if ($navGroupWide)
+                                    <x-icon name="check-circle" class="h-4 w-4 text-oil-500" />
+                                @endif
+                            </button>
+                        </form>
+                    @endif
 
-                            if (! $company->pivot->all_branches) {
-                                $branches = $branches->whereIn('id', $navAllowedBranchIds);
-                            }
+                    @foreach ($navCompanies as $company)
+                        @php
+                            $branchIds = $navContext->visibleBranchIds($company->id);
+                            $branches = $company->branches->filter(fn ($branch) => in_array((int) $branch->id, $branchIds, true));
                         @endphp
 
                         <p class="px-3 pb-1 pt-2 text-[9px] font-bold uppercase tracking-[0.18em] text-gray-400">
                             {{ $company->name }}
                         </p>
 
-                        <form method="POST" action="{{ route('context.store') }}">
-                            @csrf
-                            <input type="hidden" name="company_id" value="{{ $company->id }}">
-                            <button type="submit" class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold text-navy-700 transition hover:bg-lightPrimary dark:text-white dark:hover:bg-white/10">
-                                {{ $company->pivot->all_branches ? 'All branches' : 'All assigned branches' }}
-                                @if ($navCompany->id === $company->id && ! $navBranch)
-                                    <x-icon name="check-circle" class="h-4 w-4 text-oil-500" />
-                                @endif
-                            </button>
-                        </form>
+                        @if ($navContext->canActOn($company->id))
+                            <form method="POST" action="{{ route('context.store') }}">
+                                @csrf
+                                <input type="hidden" name="company_id" value="{{ $company->id }}">
+                                <button type="submit" class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold text-navy-700 transition hover:bg-lightPrimary dark:text-white dark:hover:bg-white/10">
+                                    {{ $navContext->scopeLabel($company->id) }}
+                                    @if ($navCompany?->id === $company->id && ! $navBranch)
+                                        <x-icon name="check-circle" class="h-4 w-4 text-oil-500" />
+                                    @endif
+                                </button>
+                            </form>
+                        @endif
 
                         @foreach ($branches as $branch)
                             <form method="POST" action="{{ route('context.store') }}">
@@ -79,7 +92,7 @@
                                 <input type="hidden" name="branch_id" value="{{ $branch->id }}">
                                 <button type="submit" class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-medium text-gray-600 transition hover:bg-lightPrimary dark:text-white/70 dark:hover:bg-white/10">
                                     {{ $branch->name }}
-                                    @if ($navCompany->id === $company->id && $navBranch?->id === $branch->id)
+                                    @if ($navCompany?->id === $company->id && $navBranch?->id === $branch->id)
                                         <x-icon name="check-circle" class="h-4 w-4 text-oil-500" />
                                     @endif
                                 </button>

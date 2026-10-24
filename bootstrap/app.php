@@ -14,6 +14,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             \App\Http\Middleware\ResolveActiveContext::class,
         ]);
+
+        $middleware->alias([
+            'menu' => \App\Http\Middleware\EnsureMenuAccess::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
